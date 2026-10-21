@@ -1,6 +1,7 @@
 import { escapeRegExp, omit, pick, uniq } from 'lodash';
 import { LRUCache } from 'lru-cache';
 import { Collection, Filter, ObjectId } from 'mongodb';
+import { groupAssignmentKeys } from '@hydrooj/common';
 import { LoginError, UserAlreadyExistError, UserNotFoundError } from '../error';
 import {
     Authenticator, BaseUserDict, FileInfo, GDoc,
@@ -74,6 +75,7 @@ export class User {
     tfa: boolean;
     authn: boolean;
     group?: string[];
+    assignmentKeys = groupAssignmentKeys([]);
     [key: string]: any;
 
     constructor(udoc: Udoc, dudoc, scope = PERM.PERM_ALL) {
@@ -102,6 +104,7 @@ export class User {
         this.tfa = !!udoc.tfa;
         this.authn = !!udoc.authenticators?.length;
         if (dudoc.group) this.group = dudoc.group;
+        if (dudoc.assignmentKeys) this.assignmentKeys = dudoc.assignmentKeys;
         const load = (settings: Record<string, ReturnType<typeof setting.Setting>>, source: any) => {
             for (const key in settings) {
                 this[key] = source[key] ?? (settings[key].value || system.get(`preference.${key}`));
@@ -234,6 +237,7 @@ class UserModel {
             UserModel.listGroup(domainId, _id),
         ]);
         dudoc.group = groups.map((i) => i.name);
+        dudoc.assignmentKeys = groupAssignmentKeys(groups);
         if (typeof scope === 'string') scope = BigInt(scope);
         return initAndCache(udoc, dudoc, scope);
     }
@@ -527,7 +531,7 @@ class UserModel {
         const groups = await cursor.toArray();
         if (uid) {
             groups.push({
-                _id: new ObjectId(), domainId, uids: [uid], name: uid.toString(),
+                _id: new ObjectId(), domainId, uids: [uid], name: uid.toString(), assignmentUser: true,
             });
         }
         return groups;

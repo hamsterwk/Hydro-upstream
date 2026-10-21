@@ -9,6 +9,7 @@ import { Filter, ObjectId } from 'mongodb';
 import { nanoid } from 'nanoid';
 import sanitize from 'sanitize-filename';
 import Schema from 'schemastery';
+import { matchAssignment } from '@hydrooj/common';
 import parser from '@hydrooj/utils/lib/search';
 import { randomstring, sortFiles, streamToBuffer } from '@hydrooj/utils/lib/utils';
 import type { Context } from '../context';
@@ -418,8 +419,7 @@ export class ProblemDetailHandler extends ContestDetailBaseHandler {
                 contest.getRelated(this.args.domainId, this.pdoc.docId),
                 contest.getRelated(this.args.domainId, this.pdoc.docId, 'homework'),
             ])).map((tdocs) => tdocs.filter((tdoc) =>
-                this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_CONTEST) || !tdoc.assign?.length
-                || new Set(tdoc.assign).intersection(new Set(this.user.group)).size,
+                this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_CONTEST) || matchAssignment(tdoc, this.user.assignmentKeys),
             ));
         }
     }

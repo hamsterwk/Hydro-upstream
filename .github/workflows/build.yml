@@ -5,6 +5,7 @@ on:
 - pull_request
 
 permissions:
+  contents: read
   # Provenance generation in GitHub Actions requires "write" access to the "id-token"
   id-token: write
 
@@ -60,7 +61,10 @@ jobs:
         files: |
           /package.json
           .eslint*
+          .yarnrc.yml
           packages/ui-default/**
+          packages/common/**
+          packages/components/**
           packages/utils/**
           .github/workflows/**
     - name: Build And Lint

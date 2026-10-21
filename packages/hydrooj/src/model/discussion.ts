@@ -1,5 +1,6 @@
 import { omit } from 'lodash';
 import { Filter, ObjectId } from 'mongodb';
+import { assignmentKey, AssignmentKeys, effectiveAssignments, matchAssignment } from '@hydrooj/common';
 import { Context } from '../context';
 import { DiscussionNodeNotFoundError, DocumentNotFoundError } from '../error';
 import {
@@ -307,13 +308,14 @@ export function getNodes(domainId: string) {
     return document.getMulti(domainId, document.TYPE_DISCUSSION_NODE).toArray();
 }
 
-export async function getListVnodes(domainId: string, ddocs: any, getHidden = false, assign: string[] = []) {
+export async function getListVnodes(domainId: string, ddocs: any, getHidden = false, assign: string[] | AssignmentKeys = []) {
+    const keys = Array.isArray(assign) ? { legacy: assign, typed: assign.map((name) => assignmentKey('legacy', name)) } : assign;
     const res = {};
     async function task(ddoc: DiscussionDoc) {
         const vnode = await getVnode(domainId, ddoc.parentType, ddoc.parentId.toString());
         res[ddoc.parentType] ||= {};
         if (!getHidden && vnode.hidden) return;
-        if (vnode.assign?.length && new Set(vnode.assign).intersection(new Set(assign)).size) return;
+        if (effectiveAssignments(vnode).length && !matchAssignment(vnode, keys)) return;
         res[ddoc.parentType][ddoc.parentId] = vnode;
     }
     await Promise.all(ddocs.map((ddoc) => task(ddoc)));
@@ -325,7 +327,7 @@ export function checkVNodeVisibility(type: number, vnode: any, user: User) {
         if (vnode.hidden && !user.own(vnode) && !user.hasPerm(PERM.PERM_VIEW_PROBLEM_HIDDEN)) return false;
     }
     if ([document.TYPE_CONTEST, document.TYPE_TRAINING].includes(type as any)) {
-        if (!user.own(vnode) && vnode.assign?.length && !new Set(vnode.assign).intersection(new Set(user.group)).size) return false;
+        if (!user.own(vnode) && !matchAssignment(vnode, user.assignmentKeys)) return false;
     }
     return true;
 }

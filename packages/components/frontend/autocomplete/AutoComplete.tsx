@@ -24,6 +24,8 @@ export interface AutoCompleteProps<Item> {
   renderItem?: (item: Item) => any;
   queryItems?: (query: string) => Promise<Item[]> | Item[];
   fetchItems?: (ids: string[]) => Promise<Item[]> | Item[];
+  /** Resolve human input separately from persisted item keys. */
+  fetchPastedItems?: (inputs: string[]) => Promise<Item[]> | Item[];
   itemText?: (item: Item) => string;
   itemKey?: (item: Item) => string;
   onChange?: (value: string) => any;
@@ -94,10 +96,16 @@ const AutoComplete = forwardRef(function Impl<T>(props: AutoCompleteProps<T>, re
   const [itemList, setItemList] = useState([]); // items list
   const [currentItem, setCurrentItem] = useState(null); // index of current item (in item list)
   const [rerender, setRerender] = useState(false);
+  const [pasteError, setPasteError] = useState('');
   const [draggableId] = useState(() => uniqueId());
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const clearPasteError = () => {
+    if (!props.fetchPastedItems) return;
+    setPasteError('');
+    inputRef.current?.setCustomValidity('');
+  };
 
   let [queryCache, valueCache] = [useRef({}).current, useRef({}).current];
   if (props.cacheKey) {
@@ -149,6 +157,7 @@ const AutoComplete = forwardRef(function Impl<T>(props: AutoCompleteProps<T>, re
   const handleInputChange = debounce((e?) => queryList(e ? e.target.value : ''), 300);
 
   const toggleItem = (item: T, key = itemKey(item), preserve = false) => {
+    clearPasteError();
     const shouldKeepOpen = multi && allowEmptyQuery && inputRef.current.value === '';
     if (multi) {
       const idx = selectedKeys.indexOf(key);
@@ -239,6 +248,7 @@ const AutoComplete = forwardRef(function Impl<T>(props: AutoCompleteProps<T>, re
     },
     getValue: () => (multi ? selectedKeys.join(',') : (inputRef.current.value ?? '')),
     clear: () => {
+      clearPasteError();
       setSelectedKeys([]);
       if (inputRef.current) inputRef.current.value = '';
     },
@@ -281,6 +291,7 @@ const AutoComplete = forwardRef(function Impl<T>(props: AutoCompleteProps<T>, re
             autoComplete="off"
             hidden={disabled}
             onChange={(e) => {
+              clearPasteError();
               dispatchChange();
               handleInputChange(e);
             }}
@@ -293,13 +304,24 @@ const AutoComplete = forwardRef(function Impl<T>(props: AutoCompleteProps<T>, re
               const text = e.clipboardData.getData('text');
               if (!text || (!text.includes(',') && !text.includes('，'))) return;
               e.preventDefault();
-              const ids = text.replace(/，/g, ',').split(',').filter((v) => v?.trim().length && !selectedKeys.includes(v));
+              clearPasteError();
+              let ids = text.replace(/，/g, ',').split(',').filter((v) => v?.trim().length);
+              if (!props.fetchPastedItems) ids = ids.filter((v) => !selectedKeys.includes(v));
               if (!ids.length) return;
               try {
-                const fetched = await props.fetchItems(ids);
+                const fetched = await (props.fetchPastedItems || props.fetchItems)(ids);
                 for (const item of fetched) valueCache[itemKey(item)] = item;
-                setSelectedKeys([...selectedKeys, ...fetched.map((val) => itemKey(val))]);
+                if (props.fetchPastedItems) {
+                  setSelectedKeys((keys) => [...new Set([...keys, ...fetched.map(itemKey)])]);
+                  inputRef.current.value = '';
+                } else setSelectedKeys([...selectedKeys, ...fetched.map((val) => itemKey(val))]);
               } catch (err) {
+                if (props.fetchPastedItems) {
+                  inputRef.current.value = text;
+                  const message = err.message || 'Unable to add pasted items. Please try again.';
+                  setPasteError(message);
+                  inputRef.current.setCustomValidity(message);
+                }
                 console.error('Failed to fetch items on paste', err);
               }
             }}
@@ -310,6 +332,7 @@ const AutoComplete = forwardRef(function Impl<T>(props: AutoCompleteProps<T>, re
           />
         </DndProvider>
       </div>
+      {pasteError && <div role="alert">{pasteError}</div>}
       {disabled && (
         <input
           disabled

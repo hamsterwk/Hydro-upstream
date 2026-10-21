@@ -80,7 +80,7 @@ class DiscussionMainHandler extends Handler {
         );
         const udict = await user.getList(domainId, ddocs.map((ddoc) => ddoc.owner));
         const [vndict, vnodes] = await Promise.all([
-            discussion.getListVnodes(domainId, ddocs, this.user.hasPerm(PERM.PERM_VIEW_PROBLEM_HIDDEN), this.user.group),
+            discussion.getListVnodes(domainId, ddocs, this.user.hasPerm(PERM.PERM_VIEW_PROBLEM_HIDDEN), this.user.assignmentKeys),
             discussion.getNodes(domainId),
         ]);
         this.response.template = 'discussion_main_or_node.html';

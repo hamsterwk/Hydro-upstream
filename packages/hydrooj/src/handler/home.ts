@@ -5,6 +5,7 @@ import * as yaml from 'js-yaml';
 import { pick } from 'lodash';
 import { Binary, ObjectId } from 'mongodb';
 import { UAParser } from 'ua-parser-js';
+import { assignmentQuery, groupAssignmentKeys } from '@hydrooj/common';
 import { Context } from '../context';
 import {
     AuthOperationError, BadRequestError, BlacklistedError, DomainAlreadyExistsError, InvalidTokenError,
@@ -42,8 +43,7 @@ export class HomeHandler extends Handler {
 
     async getHomework(domainId: string, limit = 5) {
         if (!this.user.hasPerm(PERM.PERM_VIEW_HOMEWORK)) return [[], {}];
-        const groups = (await user.listGroup(domainId, this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_HOMEWORK) ? undefined : this.user._id))
-            .map((i) => i.name);
+        const groupDocs = (await user.listGroup(domainId, this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_HOMEWORK) ? undefined : this.user._id));
         const tdocs = await contest.getMulti(domainId, {
             rule: 'homework',
             ...this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_HOMEWORK)
@@ -52,8 +52,7 @@ export class HomeHandler extends Handler {
                     $or: [
                         { maintainer: this.user._id },
                         { owner: this.user._id },
-                        { assign: { $in: groups } },
-                        { assign: { $size: 0 } },
+                        assignmentQuery(groupAssignmentKeys(groupDocs)),
                     ],
                 },
         }).sort({
@@ -68,8 +67,7 @@ export class HomeHandler extends Handler {
     async getContest(domainId: string, limit = 10) {
         if (!this.user.hasPerm(PERM.PERM_VIEW_CONTEST)) return [[], {}];
         const rules = Object.keys(contest.RULES).filter((i) => !contest.RULES[i].hidden);
-        const groups = (await user.listGroup(domainId, this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_CONTEST) ? undefined : this.user._id))
-            .map((i) => i.name);
+        const groupDocs = (await user.listGroup(domainId, this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_CONTEST) ? undefined : this.user._id));
         const q = {
             rule: { $in: rules },
             ...this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_CONTEST)
@@ -78,8 +76,7 @@ export class HomeHandler extends Handler {
                     $or: [
                         { maintainer: this.user._id },
                         { owner: this.user._id },
-                        { assign: { $in: groups } },
-                        { assign: { $size: 0 } },
+                        assignmentQuery(groupAssignmentKeys(groupDocs)),
                     ],
                 },
         };
@@ -104,7 +101,7 @@ export class HomeHandler extends Handler {
     async getDiscussion(domainId: string, limit = 20) {
         if (!this.user.hasPerm(PERM.PERM_VIEW_DISCUSSION)) return [[], {}];
         const ddocs = await discussion.getMulti(domainId).limit(limit).toArray();
-        const vndict = await discussion.getListVnodes(domainId, ddocs, this.user.hasPerm(PERM.PERM_VIEW_PROBLEM_HIDDEN), this.user.group);
+        const vndict = await discussion.getListVnodes(domainId, ddocs, this.user.hasPerm(PERM.PERM_VIEW_PROBLEM_HIDDEN), this.user.assignmentKeys);
         this.collectUser(ddocs.map((ddoc) => ddoc.owner));
         return [ddocs, vndict];
     }

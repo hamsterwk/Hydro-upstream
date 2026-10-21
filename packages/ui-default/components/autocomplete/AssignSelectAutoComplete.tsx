@@ -17,6 +17,6 @@ export default class AssignSelectAutoComplete<Multi extends boolean> extends Aut
   }
 
   value(): string {
-    return this.ref?.getSelectedItemKeys().join(',') ?? this.$dom.val();
+    return this.ref?.getValue() ?? this.$dom.val();
   }
 }

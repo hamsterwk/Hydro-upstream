@@ -12,7 +12,7 @@ const page = new NamedPage(['contest_edit', 'contest_create', 'homework_create',
   ProblemSelectAutoComplete.getOrConstruct($('[name="pids"]'), { multi: true, clearDefaultValue: false });
   UserSelectAutoComplete.getOrConstruct<true>($('[name="maintainer"]'), { multi: true, clearDefaultValue: false });
   LanguageSelectAutoComplete.getOrConstruct($('[name=langs]'), { multi: true });
-  AssignSelectAutoComplete.getOrConstruct($('[name="assign"]'), { multi: true });
+  AssignSelectAutoComplete.getOrConstruct($('[name="assignTyped"]'), { multi: true });
   $('[name="rule"]').on('change', () => {
     const rule = $('[name="rule"]').val();
     $('.contest-rule-settings input').attr('disabled', 'disabled');

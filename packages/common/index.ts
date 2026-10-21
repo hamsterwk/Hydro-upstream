@@ -1,3 +1,4 @@
+export * from './assign';
 export * from './lang';
 export * from './permission';
 export * from './status';

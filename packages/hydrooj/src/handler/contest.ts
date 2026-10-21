@@ -5,6 +5,7 @@ import { readFile } from 'fs-extra';
 import { escapeRegExp, pick } from 'lodash';
 import moment from 'moment-timezone';
 import { ObjectId } from 'mongodb';
+import { assignmentQuery, effectiveAssignments, groupAssignmentKeys, matchAssignment } from '@hydrooj/common';
 import {
     Counter, diffArray, getAlphabeticId, randomstring, sortFiles, Time, yaml,
 } from '@hydrooj/utils/lib/utils';
@@ -38,8 +39,8 @@ export class ContestListHandler extends Handler {
     @param('q', Types.String, true)
     async get(domainId: string, rule = '', group = '', page = 1, q = '') {
         if (rule && contest.RULES[rule].hidden) throw new BadRequestError();
-        const groups = (await user.listGroup(domainId, this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_CONTEST) ? undefined : this.user._id))
-            .map((i) => i.name);
+        const groupDocs = (await user.listGroup(domainId, this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_CONTEST) ? undefined : this.user._id));
+        const groups = groupDocs.map((i) => i.name);
         if (group && !groups.includes(group)) throw new NotAssignedError(group);
         const rules = Object.keys(contest.RULES).filter((i) => !contest.RULES[i].hidden);
         const escaped = escapeRegExp(q.toLowerCase());
@@ -51,12 +52,11 @@ export class ContestListHandler extends Handler {
                     $or: [
                         { maintainer: this.user._id },
                         { owner: this.user._id },
-                        { assign: { $in: groups } },
-                        { assign: { $size: 0 } },
+                        assignmentQuery(groupAssignmentKeys(groupDocs)),
                     ],
                 },
             ...rule ? { rule } : { rule: { $in: rules } },
-            ...group ? { assign: { $in: [group] } } : {},
+            ...group ? { $and: [assignmentQuery(groupAssignmentKeys(groupDocs.filter((i) => i.name === group)), false)] } : {},
             ...q ? { title: { $regex } } : {},
         };
         await this.ctx.parallel('contest/list', filter, this);
@@ -89,9 +89,9 @@ export class ContestDetailBaseHandler extends Handler {
             this.team = await contest.getTeamVid(domainId, tid, this.user._id) || undefined;
         }
         this.tsdoc = await contest.getStatus(domainId, tid, this.team ?? this.user._id);
-        if (this.tdoc.assign?.length && !this.user.own(this.tdoc) && !this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_CONTEST)) {
+        if (effectiveAssignments(this.tdoc).length && !this.user.own(this.tdoc) && !this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_CONTEST)) {
             const groups = await user.listGroup(domainId, this.user._id);
-            if (!new Set(this.tdoc.assign).intersection(new Set(groups.map((i) => i.name))).size) {
+            if (!matchAssignment(this.tdoc, groupAssignmentKeys(groups))) {
                 throw new NotAssignedError('contest', tid);
             }
         }
@@ -196,13 +196,13 @@ export class ContestDetailHandler extends ContestDetailBaseHandler {
             if (!this.tdoc.allowTeam) throw new ValidationError('allowTeam');
             const v = await user.getVuserById(vuid);
             if (!v?.members?.includes(this.user._id)) throw new PermissionError(PERM.PERM_ATTEND_CONTEST);
-            if (this.tdoc.assign?.length) {
+            if (effectiveAssignments(this.tdoc).length) {
                 const memberUdict = await user.getList(domainId, v.members);
                 for (const uid of v.members) {
                     if (uid === this.tdoc.owner) continue;
                     const m = memberUdict[uid];
                     if (m?.hasPerm(PERM.PERM_VIEW_HIDDEN_CONTEST)) continue;
-                    if (!new Set(this.tdoc.assign).intersection(new Set(m?.group || [])).size) {
+                    if (!matchAssignment(this.tdoc, m?.assignmentKeys || groupAssignmentKeys([]))) {
                         throw new NotAssignedError('contest', tid, uid);
                     }
                 }
@@ -436,6 +436,7 @@ export class ContestEditHandler extends Handler {
         this.response.body = {
             rules,
             tdoc: this.tdoc,
+            assignTyped: effectiveAssignments(this.tdoc),
             duration: tid ? -beginAt.diff(this.tdoc.endAt, 'hour', true) : 2,
             pids: tid ? this.tdoc.pids.join(',') : '',
             beginAt,
@@ -465,12 +466,16 @@ export class ContestEditHandler extends Handler {
     @param('keepScoreboardHidden', Types.Boolean)
     @param('allowTeam', Types.Boolean)
     @param('langs', Types.CommaSeperatedArray, true)
+    @param('assignTyped', [
+        (value) => (value == null ? undefined : value === '' ? [] : Types.CommaSeperatedArray(value)),
+        undefined, 'convert',
+    ])
     async postUpdate(
         domainId: string, tid: ObjectId, beginAtDate: string, beginAtTime: string, duration: number,
         title: string, content: string, rule: string, _pids: string, rated = false,
         _code = '', autoHide = false, assign: string[] = [], lock: number = null,
         contestDuration: number = null, maintainer: number[] = [], allowViewCode = false, allowPrint = false,
-        keepScoreboardHidden = false, allowTeam = false, langs: string[] = [],
+        keepScoreboardHidden = false, allowTeam = false, langs: string[] = [], assignTyped?: string[],
     ) {
         if (!Object.keys(contest.RULES).includes(rule) || contest.RULES[rule].hidden) throw new ValidationError('rule');
         if (autoHide) this.checkPerm(PERM.PERM_EDIT_PROBLEM);
@@ -513,7 +518,7 @@ export class ContestEditHandler extends Handler {
             });
         }
         await contest.edit(domainId, tid, {
-            assign, _code, autoHide, lockAt, maintainer, allowViewCode, allowPrint, keepScoreboardHidden, allowTeam, langs,
+            assign, assignTyped, _code, autoHide, lockAt, maintainer, allowViewCode, allowPrint, keepScoreboardHidden, allowTeam, langs,
         });
         this.response.body = { tid };
         this.response.redirect = this.url('contest_detail', { tid });

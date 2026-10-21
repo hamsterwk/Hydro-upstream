@@ -100,7 +100,7 @@
                 'invite': _('Require Invitation Code'),
                 'assign': _('Assign User or Group')
               },
-              value: ("public" if not tdoc._code else "invite") if not tdoc.assign|length else "assign",
+              value: ("public" if not tdoc._code else "invite") if not assignTyped|length else "assign",
               disabled:true,
               row:false
             }) }}
@@ -108,9 +108,9 @@
             {{ form.form_text({
               columns:9,
               label:'Assign',
-              name:'assign',
+              name:'assignTyped',
               placeholder:_('Group / UID'),
-              value:tdoc.assign|default(''),
+              value:assignTyped|default(''),
               disabled:true,
               row:false
             }) }}

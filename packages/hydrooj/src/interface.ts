@@ -115,6 +115,8 @@ export interface VUdoc extends Record<string, any> {
 }
 
 export interface GDoc {
+    /** In-memory marker for listGroup's synthetic per-user entry; never persisted. */
+    assignmentUser?: boolean;
     _id: ObjectId;
     domainId: string;
     name: string;
@@ -270,6 +272,8 @@ export interface Tdoc extends Document {
     rated?: boolean;
     _code?: string;
     assign?: string[];
+    /** Precise identities; absent on legacy documents. assign retains the legacy projection. */
+    assignTyped?: string[];
     files?: FileInfo[];
     privateFiles?: FileInfo[];
     allowViewCode?: boolean;

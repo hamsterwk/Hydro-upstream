@@ -1,5 +1,6 @@
 import assert from 'assert';
 import { writeFileSync } from 'fs';
+import path from 'path';
 import autocannon from 'autocannon';
 import {
     after, before, describe, it,
@@ -26,6 +27,21 @@ describe('App', () => {
                 return send?.(data) || false;
             })(process.send);
         });
+        await new Promise<void>((resolve, reject) => global.app.inject(['loader', 'server'], async ({ loader }) => {
+            try {
+                // CI starts with no addons. Load the real renderer for form assertions.
+                if (!global.addons['ui-default']) {
+                    global.addons['ui-default'] = path.dirname(require.resolve('@hydrooj/ui-default/package.json'));
+                    await loader.reloadPlugin(require.resolve('@hydrooj/ui-default'), 'ui-default');
+                }
+                // The server's ready message can precede background index creation.
+                await loader.state[require.resolve('hydrooj/src/model/document')].await();
+                resolve();
+            } catch (error) {
+                reject(error);
+            }
+        }));
+        await new Promise((resolve) => global.app.inject(['template'], () => { resolve(null); }));
         console.log('Application inited in %d ms', Date.now() - init);
     }, { timeout: 30000 });
 
@@ -62,6 +78,10 @@ describe('App', () => {
         await agent.get('/api/user?args={"id":2}&projection=uname').expect({ uname: 'root' });
     });
 
+    it('Assignment identity and Mongo persistence', async () => {
+        await require('./assignment').default(require('hydrooj').httpServer);
+    });
+
     // TODO add more tests
 
     const results: Record<string, autocannon.Result> = {};
@@ -84,6 +104,5 @@ describe('App', () => {
             }));
             writeFileSync('./benchmark.json', JSON.stringify(metrics, null, 2));
         }
-        setTimeout(() => process.exit(0), 1000);
     });
 });

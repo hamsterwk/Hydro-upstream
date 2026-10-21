@@ -2,6 +2,7 @@ import * as yaml from 'js-yaml';
 import { escapeRegExp, pick } from 'lodash';
 import moment from 'moment-timezone';
 import { ObjectId } from 'mongodb';
+import { assignmentQuery, effectiveAssignments, groupAssignmentKeys, matchAssignment } from '@hydrooj/common';
 import { sortFiles, Time } from '@hydrooj/utils/lib/utils';
 import {
     ContestNotFoundError, FileLimitExceededError, FileUploadError, HomeworkNotLiveError, NotAssignedError, ValidationError,
@@ -35,8 +36,8 @@ class HomeworkMainHandler extends Handler {
     @param('page', Types.PositiveInt, true)
     @param('q', Types.String, true)
     async get(domainId: string, group = '', page = 1, q = '') {
-        const groups = (await user.listGroup(domainId, this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_HOMEWORK) ? undefined : this.user._id))
-            .map((i) => i.name);
+        const groupDocs = (await user.listGroup(domainId, this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_HOMEWORK) ? undefined : this.user._id));
+        const groups = groupDocs.map((i) => i.name);
         if (group && !groups.includes(group)) throw new NotAssignedError(group);
         const escaped = escapeRegExp(q.toLowerCase());
         const cursor = contest.getMulti(domainId, {
@@ -47,11 +48,10 @@ class HomeworkMainHandler extends Handler {
                     $or: [
                         { maintainer: this.user._id },
                         { owner: this.user._id },
-                        { assign: { $in: groups } },
-                        { assign: { $size: 0 } },
+                        assignmentQuery(groupAssignmentKeys(groupDocs)),
                     ],
                 },
-            ...group ? { assign: { $in: [group] } } : {},
+            ...group ? { $and: [assignmentQuery(groupAssignmentKeys(groupDocs.filter((i) => i.name === group)), false)] } : {},
             ...q ? { title: { $regex: new RegExp(q.length >= 2 ? escaped : `\\A${escaped}`, 'gim') } } : {},
         }).sort({
             penaltySince: -1, endAt: -1, beginAt: -1, _id: -1,
@@ -83,8 +83,8 @@ class HomeworkDetailHandler extends Handler {
     async prepare(domainId: string, tid: ObjectId) {
         this.tdoc = await contest.get(domainId, tid);
         if (this.tdoc.rule !== 'homework') throw new ContestNotFoundError(domainId, tid);
-        if (this.tdoc.assign?.length && !this.user.own(this.tdoc) && !this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_HOMEWORK)) {
-            if (!new Set(this.tdoc.assign).intersection(new Set(this.user.group)).size) {
+        if (effectiveAssignments(this.tdoc).length && !this.user.own(this.tdoc) && !this.user.hasPerm(PERM.PERM_VIEW_HIDDEN_HOMEWORK)) {
+            if (!matchAssignment(this.tdoc, this.user.assignmentKeys)) {
                 throw new NotAssignedError('homework', this.tdoc.docId);
             }
         }
@@ -165,6 +165,7 @@ class HomeworkEditHandler extends Handler {
         this.response.template = 'homework_edit.html';
         this.response.body = {
             tdoc,
+            assignTyped: effectiveAssignments(tdoc),
             dateBeginText: beginAt.format('YYYY-M-D'),
             timeBeginText: beginAt.format('H:mm'),
             datePenaltyText: penaltySince.format('YYYY-M-D'),
@@ -190,11 +191,15 @@ class HomeworkEditHandler extends Handler {
     @param('maintainer', Types.NumericArray, true)
     @param('assign', Types.CommaSeperatedArray, true)
     @param('langs', Types.CommaSeperatedArray, true)
+    @param('assignTyped', [
+        (value) => (value == null ? undefined : value === '' ? [] : Types.CommaSeperatedArray(value)),
+        undefined, 'convert',
+    ])
     async postUpdate(
         domainId: string, tid: ObjectId, beginAtDate: string, beginAtTime: string,
         penaltySinceDate: string, penaltySinceTime: string, extensionDays: number,
         penaltyRules: PenaltyRules, title: string, content: string, _pids: string, rated = false,
-        maintainer: number[] = [], assign: string[] = [], langs: string[] = [],
+        maintainer: number[] = [], assign: string[] = [], langs: string[] = [], assignTyped?: string[],
     ) {
         const pids = _pids.replace(/，/g, ',').split(',').map((i) => +i).filter((i) => i);
         const tdoc = tid ? await contest.get(domainId, tid) : null;
@@ -212,7 +217,7 @@ class HomeworkEditHandler extends Handler {
         if (!tid) {
             tid = await contest.add(domainId, title, content, this.user._id,
                 'homework', beginAt.toDate(), endAt.toDate(), pids, rated,
-                { penaltySince: penaltySince.toDate(), penaltyRules, assign });
+                { penaltySince: penaltySince.toDate(), penaltyRules, assign, assignTyped });
         } else {
             await contest.edit(domainId, tid, {
                 title,
@@ -225,6 +230,7 @@ class HomeworkEditHandler extends Handler {
                 rated,
                 maintainer,
                 assign,
+                assignTyped,
                 langs,
             });
             if (tdoc.beginAt !== beginAt.toDate()

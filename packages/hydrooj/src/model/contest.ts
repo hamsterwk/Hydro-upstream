@@ -1,5 +1,6 @@
 import { sumBy } from 'lodash';
 import { Filter, ObjectId } from 'mongodb';
+import { normalizeAssignments } from '@hydrooj/common';
 import {
     Counter, formatSeconds, getAlphabeticId, sleep, Time,
 } from '@hydrooj/utils/lib/utils';
@@ -837,6 +838,9 @@ export async function add(
     Object.assign(data, {
         content, owner, title, rule, beginAt, endAt, pids, attend: 0,
     });
+    if (data.assignTyped !== undefined || data.assign !== undefined) {
+        Object.assign(data, normalizeAssignments(data));
+    }
     RULES[rule].check(data);
     await bus.parallel('contest/before-add', data);
     const docId = await document.add(domainId, content, owner, document.TYPE_CONTEST, null, null, null, {
@@ -850,6 +854,9 @@ export async function edit(domainId: string, tid: ObjectId, $set: Partial<Tdoc>)
     if ($set.rule && !RULES[$set.rule]) throw new ValidationError('rule');
     const tdoc = await document.get(domainId, document.TYPE_CONTEST, tid);
     if (!tdoc) throw new ContestNotFoundError(domainId, tid);
+    if ($set.assignTyped !== undefined || $set.assign !== undefined) {
+        Object.assign($set, normalizeAssignments($set));
+    }
     await bus.parallel('contest/before-edit', tdoc, $set);
     RULES[$set.rule || tdoc.rule].check(Object.assign(tdoc, $set));
     const res = await document.set(domainId, document.TYPE_CONTEST, tid, $set);
